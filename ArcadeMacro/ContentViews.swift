@@ -4,9 +4,6 @@ import UniformTypeIdentifiers
 
 struct DeviceView: View {
     @EnvironmentObject private var bluetooth: BluetoothManager
-    @State private var selectedUUID = ""
-    @State private var hex = ""
-    @State private var notice: String?
     var body: some View {
         NavigationView {
             List {
@@ -21,21 +18,17 @@ struct DeviceView: View {
                             Text(row.uuid).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                             Text("Service \(row.serviceUUID.uuidString) · \(row.properties)").font(.caption2).foregroundStyle(.secondary)
                             Text("Value: \(row.valueText)").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                            HStack { if row.characteristic.properties.contains(.read) { Button("Read") { bluetooth.read(row.uuid) } }; Button("Select for raw write") { selectedUUID = row.uuid } }
+                            if row.characteristic.properties.contains(.read) { Button("Read") { bluetooth.read(row.uuid) } }
                         }.padding(.vertical, 3)
                     }
                 }
-                Section("Manual raw GATT write") {
-                    Text(selectedUUID.isEmpty ? "Select a characteristic above." : "Target: \(selectedUUID)").font(.caption).textSelection(.enabled)
-                    TextField("Hex bytes, e.g. 01 A0 FF", text: $hex).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.system(.body, design: .monospaced))
-                    Button("Write these bytes") { notice = bluetooth.writeRaw(hex, to: selectedUUID) ?? "Write queued. A raw GATT write is not a macro upload." }
-                        .disabled(selectedUUID.isEmpty || hex.isEmpty)
-                    Text("The controller's macro packet format has not been confirmed. This tool sends only the exact bytes you enter; it does not translate a macro into device commands.").font(.caption).foregroundStyle(.secondary)
+                Section("Safe macro upload") {
+                    Label("Writes are disabled until the complete settings block can be read", systemImage: "lock.shield")
+                    Text("An upload must start from the controller's current full settings, replace only the active profile's macro fields, then send the preserved block back. This protects your button mappings. The BLE read/write transport is not confirmed yet.").font(.caption).foregroundStyle(.secondary)
                 }
                 if !bluetooth.log.isEmpty { Section("Activity") { ForEach(Array(bluetooth.log.prefix(12).enumerated()), id: \.offset) { _, s in Text(s).font(.caption) } } }
             }
             .navigationTitle("8BitDo Macro Lab")
-            .alert("Bluetooth", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK") { notice = nil } } message: { Text(notice ?? "") }
         }
     }
 }
@@ -73,7 +66,7 @@ struct MacroView: View {
                 }
                 Section("Send to controller") {
                     Label("Macro upload is not enabled yet", systemImage: "exclamationmark.bluetooth")
-                    Text("The stick must expose a writable Bluetooth service and its macro packet format must be verified. The Bluetooth tab helps inspect those attributes. Once confirmed, the app can encode this sequence for that protocol.").font(.caption).foregroundStyle(.secondary)
+                    Text("The app must first read the full settings block, update only the selected macro data, and preserve all mappings before writing it back. The Bluetooth tab is for discovering whether iOS can reach the needed report transport.").font(.caption).foregroundStyle(.secondary)
                 }
             }.navigationTitle("Macro Editor")
                 .fileExporter(isPresented: $exported, document: MacroDocument(data: selectedJSON), contentType: .json, defaultFilename: "macro.json") { _ in }
