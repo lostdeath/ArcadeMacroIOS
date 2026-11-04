@@ -10,7 +10,14 @@ struct DeviceView: View {
         NavigationView {
             List {
                 Section { Text(bluetooth.state).font(.subheadline); Button("Scan for Bluetooth devices") { bluetooth.scan() }.disabled(bluetooth.connected != nil)
-                    ForEach(bluetooth.devices, id: \.identifier) { d in Button { bluetooth.connect(d) } label: { Label(d.name ?? "Unnamed device", systemImage: "gamecontroller") } }
+                    ForEach(bluetooth.devices) { d in
+                        Button { bluetooth.connect(d.peripheral) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label(d.displayName, systemImage: "gamecontroller")
+                                Text("RSSI \(d.rssi) dBm · Advertised services: \(d.advertisedServices.count)").font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                     if bluetooth.connected != nil { Button("Disconnect", role: .destructive) { bluetooth.disconnect() } }
                 } header: { Text("Controller") }
                 Section("GATT services") {
