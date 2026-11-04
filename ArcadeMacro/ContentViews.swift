@@ -1,9 +1,11 @@
 import SwiftUI
 import CoreBluetooth
 import UniformTypeIdentifiers
+import UIKit
 
 struct DeviceView: View {
     @EnvironmentObject private var bluetooth: BluetoothManager
+    @State private var showCopied = false
     var body: some View {
         NavigationView {
             List {
@@ -11,7 +13,13 @@ struct DeviceView: View {
                     ForEach(bluetooth.devices, id: \.identifier) { d in Button { bluetooth.connect(d) } label: { Label(d.name ?? "Unnamed device", systemImage: "gamecontroller") } }
                     if bluetooth.connected != nil { Button("Disconnect", role: .destructive) { bluetooth.disconnect() } }
                 } header: { Text("Controller") }
-                Section("Services and characteristics") {
+                Section("GATT services") {
+                    if bluetooth.services.isEmpty { Text("No services discovered yet.").foregroundStyle(.secondary) }
+                    ForEach(bluetooth.services, id: \.uuidString) { service in
+                        Text(service.uuidString).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
+                Section("Characteristics") {
                     if bluetooth.rows.isEmpty { Text("Connect to a BLE device to inspect its GATT attributes.").foregroundStyle(.secondary) }
                     ForEach(bluetooth.rows) { row in
                         VStack(alignment: .leading, spacing: 4) {
@@ -29,6 +37,13 @@ struct DeviceView: View {
                 if !bluetooth.log.isEmpty { Section("Activity") { ForEach(Array(bluetooth.log.prefix(12).enumerated()), id: \.offset) { _, s in Text(s).font(.caption) } } }
             }
             .navigationTitle("8BitDo Macro Lab")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { UIPasteboard.general.string = bluetooth.diagnosticReport(); showCopied = true } label: { Image(systemName: "doc.on.doc") }
+                        .accessibilityLabel("Copy Bluetooth report")
+                }
+            }
+            .alert("Bluetooth report copied", isPresented: $showCopied) { Button("OK", role: .cancel) {} } message: { Text("Paste the report into chat to share the discovered services and characteristics.") }
         }
     }
 }
