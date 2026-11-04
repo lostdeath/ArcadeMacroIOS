@@ -19,9 +19,19 @@ struct BLECharacteristic: Identifiable {
     }
 }
 
+struct BLEDevice: Identifiable {
+    let id: UUID
+    let peripheral: CBPeripheral
+    let advertisedName: String?
+    let rssi: Int
+    let advertisedServices: [String]
+    let manufacturerData: String?
+    var displayName: String { advertisedName ?? peripheral.name ?? "Unnamed device" }
+}
+
 final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     @Published var state = "Bluetooth is starting…"
-    @Published var devices: [CBPeripheral] = []
+    @Published var devices: [BLEDevice] = []
     @Published var connected: CBPeripheral?
     @Published var services: [CBUUID] = []
     @Published var rows: [BLECharacteristic] = []
@@ -55,9 +65,17 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         }
     }
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
-        guard !devices.contains(where: { $0.identifier == peripheral.identifier }) else { return }
-        devices.append(peripheral)
-        devices.sort { ($0.name ?? "").localizedCaseInsensitiveContains("8BitDo") && !($1.name ?? "").localizedCaseInsensitiveContains("8BitDo") }
+        let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []).map(\.uuidString).sorted()
+        let manufacturer = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data)?.prefix(32).map { String(format: "%02X", $0) }.joined(separator: " ")
+        let item = BLEDevice(id: peripheral.identifier, peripheral: peripheral, advertisedName: name, rssi: rssi.intValue, advertisedServices: advertisedServices, manufacturerData: manufacturer)
+        if let index = devices.firstIndex(where: { $0.id == item.id }) { devices[index] = item }
+        else { devices.append(item) }
+        devices.sort {
+            let lhsIs8BitDo = $0.displayName.localizedCaseInsensitiveContains("8BitDo")
+            let rhsIs8BitDo = $1.displayName.localizedCaseInsensitiveContains("8BitDo")
+            return lhsIs8BitDo == rhsIs8BitDo ? $0.rssi > $1.rssi : lhsIs8BitDo
+        }
     }
     func connect(_ peripheral: CBPeripheral) {
         central.stopScan(); state = "Connecting to \(peripheral.name ?? "controller")…"
@@ -105,7 +123,11 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         var lines = ["8BitDo Macro Lab Bluetooth report", "State: \(state)"]
         lines.append("Connected device: \(connected?.name ?? "none")")
         lines.append("Discovered devices:")
-        lines.append(contentsOf: devices.map { "- \($0.name ?? "Unnamed") [\($0.identifier.uuidString)]" })
+        lines.append(contentsOf: devices.map { device in
+            let services = device.advertisedServices.isEmpty ? "none" : device.advertisedServices.joined(separator: ",")
+            let manufacturer = device.manufacturerData ?? "none"
+            return "- \(device.displayName) RSSI=\(device.rssi) dBm id=\(device.id.uuidString) advertisedServices=\(services) manufacturerData=\(manufacturer)"
+        })
         lines.append("Services:")
         lines.append(contentsOf: services.map { "- \($0.uuidString)" })
         lines.append("Characteristics:")
