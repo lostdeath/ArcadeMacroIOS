@@ -1,6 +1,6 @@
 # ArcadeMacro iOS
 
-SwiftUI/Core Bluetooth utility for iPhone, with a BLE scanner, GATT service and characteristic inspector, a timed macro sequence editor, and JSON export. The GitHub Actions workflow builds the device app without a signing identity and packages the `.app` into an unsigned IPA artifact for later signing with Sideloadly.
+SwiftUI/Core Bluetooth utility for iPhone, with a BLE scanner, GATT service and characteristic inspector, a copyable scan report with RSSI and advertised-service details, a timed macro sequence editor, and JSON export. The GitHub Actions workflow builds the device app without a signing identity and packages the `.app` into an unsigned IPA artifact for later signing with Sideloadly.
 
 ## Build
 
