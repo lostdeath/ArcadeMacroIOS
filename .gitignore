@@ -1,5 +1,6 @@
 ArcadeMacro.xcodeproj/
 build/
 DerivedData/
+artifacts/
 *.xcuserstate
 .DS_Store
