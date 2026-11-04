@@ -23,6 +23,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var state = "Bluetooth is starting…"
     @Published var devices: [CBPeripheral] = []
     @Published var connected: CBPeripheral?
+    @Published var services: [CBUUID] = []
     @Published var rows: [BLECharacteristic] = []
     @Published var log: [String] = []
     private var central: CBCentralManager!
@@ -44,7 +45,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     }
     func scan() {
         guard central.state == .poweredOn else { return }
-        devices = []; rows = []; characteristics = [:]
+        devices = []; services = []; rows = []; characteristics = [:]
         state = "Scanning for 8 seconds…"
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
@@ -63,7 +64,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         central.connect(peripheral, options: nil)
     }
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        connected = peripheral; peripheral.delegate = self; rows = []; characteristics = [:]
+        connected = peripheral; peripheral.delegate = self; services = []; rows = []; characteristics = [:]
         state = "Connected. Discovering services…"; peripheral.discoverServices(nil)
         log.insert("Connected to \(peripheral.name ?? peripheral.identifier.uuidString)", at: 0)
     }
@@ -71,11 +72,12 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         state = "Connection failed: \(error?.localizedDescription ?? "unknown error")"
     }
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        connected = nil; rows = []; characteristics = [:]
+        connected = nil; services = []; rows = []; characteristics = [:]
         state = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected."
     }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error { state = "Service discovery failed: \(error.localizedDescription)"; return }
+        services = (peripheral.services ?? []).map(\.uuid).sorted { $0.uuidString < $1.uuidString }
         for service in peripheral.services ?? [] { peripheral.discoverCharacteristics(nil, for: service) }
         state = "Services: \(peripheral.services?.count ?? 0). Reading characteristic list…"
     }
@@ -98,6 +100,17 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     func read(_ uuid: String) {
         guard let c = characteristics[uuid], c.properties.contains(.read), let connected else { return }
         connected.readValue(for: c)
+    }
+    func diagnosticReport() -> String {
+        var lines = ["8BitDo Macro Lab Bluetooth report", "State: \(state)"]
+        lines.append("Connected device: \(connected?.name ?? "none")")
+        lines.append("Discovered devices:")
+        lines.append(contentsOf: devices.map { "- \($0.name ?? "Unnamed") [\($0.identifier.uuidString)]" })
+        lines.append("Services:")
+        lines.append(contentsOf: services.map { "- \($0.uuidString)" })
+        lines.append("Characteristics:")
+        lines.append(contentsOf: rows.map { "- service=\($0.serviceUUID.uuidString) characteristic=\($0.uuid) properties=\($0.properties) value=\($0.valueText)" })
+        return lines.joined(separator: "\n")
     }
     func disconnect() { if let connected { central.cancelPeripheralConnection(connected) } }
 }
