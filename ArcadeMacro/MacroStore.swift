@@ -44,7 +44,8 @@ final class MacroStore: ObservableObject {
             if let pad = controller.extendedGamepad {
                 bind(pad.buttonA, name: "A"); bind(pad.buttonB, name: "B"); bind(pad.buttonX, name: "X"); bind(pad.buttonY, name: "Y")
                 bind(pad.leftShoulder, name: "L"); bind(pad.rightShoulder, name: "R"); bind(pad.leftTrigger, name: "ZL"); bind(pad.rightTrigger, name: "ZR")
-                bind(pad.buttonMenu, name: "Start"); bind(pad.buttonOptions, name: "Select")
+                bind(pad.buttonMenu, name: "Start")
+                if let options = pad.buttonOptions { bind(options, name: "Select") }
                 bind(pad.dpad.up, name: "Up"); bind(pad.dpad.down, name: "Down"); bind(pad.dpad.left, name: "Left"); bind(pad.dpad.right, name: "Right")
             } else if let pad = controller.microGamepad {
                 bind(pad.buttonA, name: "A"); bind(pad.buttonX, name: "X")
