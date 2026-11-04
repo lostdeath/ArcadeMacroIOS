@@ -99,18 +99,5 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         guard let c = characteristics[uuid], c.properties.contains(.read), let connected else { return }
         connected.readValue(for: c)
     }
-    // Deliberately raw and user-specified. Macro packet encoding is not yet verified for this controller.
-    func writeRaw(_ hex: String, to uuid: String) -> String? {
-        let tokens = hex.split(whereSeparator: { $0 == " " || $0 == "," || $0 == ":" })
-        guard !tokens.isEmpty, tokens.allSatisfy({ $0.count == 2 && UInt8($0, radix: 16) != nil }) else { return "Enter bytes as hex, for example: 01 A0 FF" }
-        guard let c = characteristics[uuid], let connected else { return "Connect to a device and select a characteristic first." }
-        let type: CBCharacteristicWriteType
-        if c.properties.contains(.write) { type = .withResponse }
-        else if c.properties.contains(.writeWithoutResponse) { type = .withoutResponse }
-        else { return "This characteristic does not advertise write access." }
-        connected.writeValue(Data(tokens.compactMap { UInt8($0, radix: 16) }), for: c, type: type)
-        log.insert("Manual raw write (\(tokens.count) bytes) to \(uuid)", at: 0)
-        return nil
-    }
     func disconnect() { if let connected { central.cancelPeripheralConnection(connected) } }
 }
