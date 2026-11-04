@@ -8,6 +8,6 @@ Open `project.yml` with XcodeGen on macOS (`brew install xcodegen`, then `xcodeg
 
 ## Bluetooth and macro support status
 
-The app uses CoreBluetooth to scan, connect, discover services and characteristics, read exposed values, and perform an explicit raw write only when the selected characteristic advertises write support. Bluetooth HID controllers may be managed by iOS and not appear as app-visible BLE peripherals. The 8BitDo macro packet format is not verified, so the app does not claim to upload edited macros; the editor stores timed button steps locally and exports JSON. Do not write guessed bytes to the controller. Confirm the controller's actual service/characteristic and protocol before adding macro encoding.
+The app uses CoreBluetooth to scan, connect, discover services and characteristics, and read exposed values. It intentionally has no generic write control. A safe macro upload must first read the controller's complete current settings block, change only the active profile's macro fields, and send the preserved full block back so button mappings remain intact. Bluetooth HID controllers may be managed by iOS and may not appear as app-visible BLE peripherals. Macro upload stays disabled until the actual Bluetooth read/write transport is confirmed.
 
 The app targets iOS 15+. iPhone 13 is supported. Unsigned builds require signing before installation.
