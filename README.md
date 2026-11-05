@@ -11,3 +11,11 @@ Open `project.yml` with XcodeGen on macOS (`brew install xcodegen`, then `xcodeg
 The app uses CoreBluetooth to scan, connect, discover services and characteristics, and read exposed values. It intentionally has no generic write control. A safe macro upload must first read the controller's complete current settings block, change only the active profile's macro fields, and send the preserved full block back so button mappings remain intact. Bluetooth HID controllers may be managed by iOS and may not appear as app-visible BLE peripherals. Macro upload stays disabled until the actual Bluetooth read/write transport is confirmed.
 
 The app targets iOS 15+. iPhone 13 is supported. Unsigned builds require signing before installation.
+
+## ESP32-S3 bridge
+
+The first-stage ESP32-S3 firmware and flashing instructions are in
+[`esp32/README.md`](esp32/README.md). The iPhone Bluetooth screen recognizes
+its custom service, reads bridge status, and can send a `PING` command. This
+only verifies the phone-to-board BLE link; the stick transport and macro
+upload still require the exact controller model and protocol.

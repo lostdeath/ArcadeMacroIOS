@@ -36,6 +36,15 @@ struct DeviceView: View {
                     }
                     if bluetooth.connected != nil || bluetooth.isConnecting { Button("Cancel / disconnect", role: .destructive) { bluetooth.disconnect() } }
                 } header: { Text("Controller") }
+                Section("ESP32 bridge") {
+                    Text(bluetooth.bridgeStatus).font(.subheadline)
+                    Button("Ping bridge") { bluetooth.pingBridge() }
+                        .disabled(!bluetooth.bridgeReady)
+                    if !bluetooth.bridgeReady {
+                        Text("Connect to ArcadeMacro Bridge to test the phone-to-board link.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Section("GATT services") {
                     if bluetooth.services.isEmpty { Text("No services discovered yet.").foregroundStyle(.secondary) }
                     ForEach(bluetooth.services, id: \.uuidString) { service in

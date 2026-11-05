@@ -31,12 +31,17 @@ struct BLEDevice: Identifiable {
 }
 
 final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+    static let bridgeServiceUUID = CBUUID(string: "A8C70001-7D2B-4F4E-A5E9-8B7B5F66E001")
+    static let bridgeStatusUUID = CBUUID(string: "A8C70002-7D2B-4F4E-A5E9-8B7B5F66E001")
+    static let bridgeCommandUUID = CBUUID(string: "A8C70003-7D2B-4F4E-A5E9-8B7B5F66E001")
+    static let bridgeResponseUUID = CBUUID(string: "A8C70004-7D2B-4F4E-A5E9-8B7B5F66E001")
     @Published var state = "Bluetooth is starting…"
     @Published var devices: [BLEDevice] = []
     @Published var connected: CBPeripheral?
     @Published var services: [CBUUID] = []
     @Published var rows: [BLECharacteristic] = []
     @Published var log: [String] = []
+    @Published var bridgeStatus = "Bridge not connected."
     @Published var systemGameControllers: [String] = []
     @Published var gameControllerDiscoveryState = ""
     @Published var isSearchingForGameControllers = false
@@ -46,6 +51,9 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     private var connectionTimeout: DispatchWorkItem?
     private var gameControllerObservers: [NSObjectProtocol] = []
     private var gameControllerSearchTimeout: DispatchWorkItem?
+    var bridgeReady: Bool {
+        connected != nil && characteristics[Self.bridgeCommandUUID.uuidString] != nil
+    }
     var isConnecting: Bool { pendingPeripheral != nil }
 
     override init() {
@@ -155,6 +163,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         connectionTimeout?.cancel(); connectionTimeout = nil; pendingPeripheral = nil
         connected = peripheral; peripheral.delegate = self; services = []; rows = []; characteristics = [:]
+        bridgeStatus = "Checking for bridge service…"
         state = "BLE connected to \(deviceName(peripheral)). Discovering services…"; peripheral.discoverServices(nil)
         log.insert("BLE connected to \(deviceName(peripheral)) [\(shortID(peripheral.identifier))]", at: 0)
     }
@@ -168,6 +177,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         let wasActive = pendingPeripheral?.identifier == peripheral.identifier || connected?.identifier == peripheral.identifier
         if pendingPeripheral?.identifier == peripheral.identifier { pendingPeripheral = nil }
         if connected?.identifier == peripheral.identifier { connected = nil; services = []; rows = []; characteristics = [:] }
+        if wasActive { bridgeStatus = "Bridge not connected." }
         if wasActive { state = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected." }
         log.insert("BLE disconnected from \(deviceName(peripheral))", at: 0)
     }
@@ -185,6 +195,9 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
             if c.properties.contains(.read) { peripheral.readValue(for: c) }
             if c.properties.contains(.notify) { peripheral.setNotifyValue(true, for: c) }
         }
+        if service.uuid == Self.bridgeServiceUUID {
+            bridgeStatus = "Bridge service found. Reading status…"
+        }
         rows.sort { $0.serviceUUID.uuidString + $0.uuid < $1.serviceUUID.uuidString + $1.uuid }
         state = "Connected. Found \(rows.count) characteristics."
     }
@@ -192,6 +205,24 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         if let error { log.insert("Read \(characteristic.uuid): \(error.localizedDescription)", at: 0); return }
         let value = characteristic.value?.map { String(format: "%02X", $0) }.joined(separator: " ") ?? "(empty)"
         if let i = rows.firstIndex(where: { $0.uuid == characteristic.uuid.uuidString }) { rows[i].valueText = value }
+        if characteristic.uuid == Self.bridgeStatusUUID || characteristic.uuid == Self.bridgeResponseUUID {
+            bridgeStatus = characteristic.value.flatMap { String(data: $0, encoding: .utf8) } ?? "Bridge sent an unreadable response."
+            log.insert("Bridge: \(bridgeStatus)", at: 0)
+        }
+    }
+    func pingBridge() {
+        guard let connected,
+              let command = characteristics[Self.bridgeCommandUUID.uuidString],
+              command.properties.contains(.write) else { return }
+        bridgeStatus = "Waiting for bridge response…"
+        connected.writeValue(Data("PING".utf8), for: command, type: .withResponse)
+    }
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error { bridgeStatus = "Bridge command failed: \(error.localizedDescription)" }
+        else if characteristic.uuid == Self.bridgeCommandUUID,
+                let response = characteristics[Self.bridgeResponseUUID.uuidString] {
+            peripheral.readValue(for: response)
+        }
     }
     func read(_ uuid: String) {
         guard let c = characteristics[uuid], c.properties.contains(.read), let connected else { return }
@@ -202,6 +233,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         lines.append("iOS game controllers: \(systemGameControllers.isEmpty ? "none" : systemGameControllers.joined(separator: "; "))")
         if !gameControllerDiscoveryState.isEmpty { lines.append("iOS controller search: \(gameControllerDiscoveryState)") }
         lines.append("Connected device: \(connected?.name ?? "none")")
+        lines.append("Bridge status: \(bridgeStatus)")
         lines.append("Pending connection: \(pendingPeripheral.map { "\(deviceName($0)) [\(shortID($0.identifier))]" } ?? "none")")
         lines.append("Discovered devices:")
         lines.append(contentsOf: devices.map { device in
