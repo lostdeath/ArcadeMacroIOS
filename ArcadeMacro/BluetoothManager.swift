@@ -26,7 +26,7 @@ struct BLEDevice: Identifiable {
     let rssi: Int
     let advertisedServices: [String]
     let manufacturerData: String?
-    var displayName: String { advertisedName ?? peripheral.name ?? "Unnamed device" }
+    var displayName: String { advertisedName ?? peripheral.name ?? "Unnamed BLE · \(String(id.uuidString.suffix(8)))" }
 }
 
 final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
@@ -38,6 +38,9 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var log: [String] = []
     private var central: CBCentralManager!
     private var characteristics: [String: CBCharacteristic] = [:]
+    private var pendingPeripheral: CBPeripheral?
+    private var connectionTimeout: DispatchWorkItem?
+    var isConnecting: Bool { pendingPeripheral != nil }
 
     override init() {
         super.init()
@@ -78,20 +81,42 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         }
     }
     func connect(_ peripheral: CBPeripheral) {
-        central.stopScan(); state = "Connecting to \(peripheral.name ?? "controller")…"
+        guard central.state == .poweredOn else { state = "Bluetooth is not ready."; return }
+        if connected?.identifier == peripheral.identifier { state = "Already connected."; return }
+        if pendingPeripheral != nil { return }
+        central.stopScan()
+        pendingPeripheral = peripheral
+        state = "Requesting BLE connection to \(deviceName(peripheral))…"
+        log.insert("Requested BLE connection to \(deviceName(peripheral)) [\(shortID(peripheral.identifier))]", at: 0)
         central.connect(peripheral, options: nil)
+        let timeout = DispatchWorkItem { [weak self, weak peripheral] in
+            guard let self, let peripheral, self.pendingPeripheral?.identifier == peripheral.identifier else { return }
+            self.central.cancelPeripheralConnection(peripheral)
+            self.pendingPeripheral = nil
+            self.state = "BLE connection timed out. The selected device may be a Bluetooth HID/gamepad device that iOS does not expose to this app as a GATT peripheral."
+            self.log.insert("BLE connection timed out for \(self.deviceName(peripheral)) [\(self.shortID(peripheral.identifier))]", at: 0)
+        }
+        connectionTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
     }
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        connectionTimeout?.cancel(); connectionTimeout = nil; pendingPeripheral = nil
         connected = peripheral; peripheral.delegate = self; services = []; rows = []; characteristics = [:]
-        state = "Connected. Discovering services…"; peripheral.discoverServices(nil)
-        log.insert("Connected to \(peripheral.name ?? peripheral.identifier.uuidString)", at: 0)
+        state = "BLE connected to \(deviceName(peripheral)). Discovering services…"; peripheral.discoverServices(nil)
+        log.insert("BLE connected to \(deviceName(peripheral)) [\(shortID(peripheral.identifier))]", at: 0)
     }
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        state = "Connection failed: \(error?.localizedDescription ?? "unknown error")"
+        connectionTimeout?.cancel(); connectionTimeout = nil; pendingPeripheral = nil
+        state = "BLE connection failed: \(error?.localizedDescription ?? "unknown error")"
+        log.insert("BLE connection failed for \(deviceName(peripheral)): \(error?.localizedDescription ?? "unknown error")", at: 0)
     }
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        connected = nil; services = []; rows = []; characteristics = [:]
-        state = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected."
+        connectionTimeout?.cancel(); connectionTimeout = nil
+        let wasActive = pendingPeripheral?.identifier == peripheral.identifier || connected?.identifier == peripheral.identifier
+        if pendingPeripheral?.identifier == peripheral.identifier { pendingPeripheral = nil }
+        if connected?.identifier == peripheral.identifier { connected = nil; services = []; rows = []; characteristics = [:] }
+        if wasActive { state = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected." }
+        log.insert("BLE disconnected from \(deviceName(peripheral))", at: 0)
     }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error { state = "Service discovery failed: \(error.localizedDescription)"; return }
@@ -122,6 +147,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     func diagnosticReport() -> String {
         var lines = ["8BitDo Macro Lab Bluetooth report", "State: \(state)"]
         lines.append("Connected device: \(connected?.name ?? "none")")
+        lines.append("Pending connection: \(pendingPeripheral.map { "\(deviceName($0)) [\(shortID($0.identifier))]" } ?? "none")")
         lines.append("Discovered devices:")
         lines.append(contentsOf: devices.map { device in
             let services = device.advertisedServices.isEmpty ? "none" : device.advertisedServices.joined(separator: ",")
@@ -134,5 +160,11 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         lines.append(contentsOf: rows.map { "- service=\($0.serviceUUID.uuidString) characteristic=\($0.uuid) properties=\($0.properties) value=\($0.valueText)" })
         return lines.joined(separator: "\n")
     }
-    func disconnect() { if let connected { central.cancelPeripheralConnection(connected) } }
+    private func deviceName(_ peripheral: CBPeripheral) -> String { peripheral.name ?? "Unnamed BLE device" }
+    private func shortID(_ id: UUID) -> String { String(id.uuidString.suffix(8)) }
+    func disconnect() {
+        connectionTimeout?.cancel(); connectionTimeout = nil
+        if let pendingPeripheral { central.cancelPeripheralConnection(pendingPeripheral); self.pendingPeripheral = nil; state = "Connection cancelled." }
+        if let connected { central.cancelPeripheralConnection(connected); state = "Disconnecting…" }
+    }
 }

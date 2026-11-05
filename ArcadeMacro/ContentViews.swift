@@ -9,16 +9,17 @@ struct DeviceView: View {
     var body: some View {
         NavigationView {
             List {
-                Section { Text(bluetooth.state).font(.subheadline); Button("Scan for Bluetooth devices") { bluetooth.scan() }.disabled(bluetooth.connected != nil)
+                Section { Text(bluetooth.state).font(.subheadline); Button("Scan for Bluetooth devices") { bluetooth.scan() }.disabled(bluetooth.connected != nil || bluetooth.isConnecting)
                     ForEach(bluetooth.devices) { d in
                         Button { bluetooth.connect(d.peripheral) } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Label(d.displayName, systemImage: "gamecontroller")
                                 Text("RSSI \(d.rssi) dBm · Advertised services: \(d.advertisedServices.count)").font(.caption2).foregroundStyle(.secondary)
+                                if let data = d.manufacturerData { Text("Manufacturer data: \(data)").font(.caption2.monospaced()).foregroundStyle(.secondary) }
                             }
-                        }
+                        }.disabled(bluetooth.connected != nil || bluetooth.isConnecting)
                     }
-                    if bluetooth.connected != nil { Button("Disconnect", role: .destructive) { bluetooth.disconnect() } }
+                    if bluetooth.connected != nil || bluetooth.isConnecting { Button("Cancel / disconnect", role: .destructive) { bluetooth.disconnect() } }
                 } header: { Text("Controller") }
                 Section("GATT services") {
                     if bluetooth.services.isEmpty { Text("No services discovered yet.").foregroundStyle(.secondary) }
