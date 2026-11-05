@@ -9,13 +9,19 @@ targets:
     platform: iOS
     sources:
       - path: ArcadeMacro
+    info:
+      path: ArcadeMacro/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Scan for and inspect nearby Bluetooth controllers."
+        NSBluetoothPeripheralUsageDescription: "Connect to and inspect Bluetooth controller services."
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+          - ProfileName: Gamepad
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lostdeath420.arcademacro
         PRODUCT_NAME: ArcadeMacro
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Scan for and inspect nearby Bluetooth controllers."
-        INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription: "Connect to and inspect Bluetooth controller services."
-        GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO

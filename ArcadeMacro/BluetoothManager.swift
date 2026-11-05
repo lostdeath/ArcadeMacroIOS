@@ -39,11 +39,13 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var log: [String] = []
     @Published var systemGameControllers: [String] = []
     @Published var gameControllerDiscoveryState = ""
+    @Published var isSearchingForGameControllers = false
     private var central: CBCentralManager!
     private var characteristics: [String: CBCharacteristic] = [:]
     private var pendingPeripheral: CBPeripheral?
     private var connectionTimeout: DispatchWorkItem?
     private var gameControllerObservers: [NSObjectProtocol] = []
+    private var gameControllerSearchTimeout: DispatchWorkItem?
     var isConnecting: Bool { pendingPeripheral != nil }
 
     override init() {
@@ -51,7 +53,9 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         central = CBCentralManager(delegate: self, queue: .main)
         let center = NotificationCenter.default
         gameControllerObservers.append(center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
-            self?.refreshSystemGameControllers()
+            guard let self else { return }
+            self.refreshSystemGameControllers()
+            if !self.systemGameControllers.isEmpty { self.finishGameControllerDiscovery() }
         })
         gameControllerObservers.append(center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
             self?.refreshSystemGameControllers()
@@ -67,15 +71,33 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         }
     }
     func discoverSystemGameControllers() {
+        gameControllerSearchTimeout?.cancel()
+        gameControllerSearchTimeout = nil
+        GCController.stopWirelessControllerDiscovery()
         refreshSystemGameControllers()
-        gameControllerDiscoveryState = "Searching for controllers paired with iOS…"
-        GCController.startWirelessControllerDiscovery { [weak self] in
-            guard let self else { return }
-            self.refreshSystemGameControllers()
-            self.gameControllerDiscoveryState = self.systemGameControllers.isEmpty
-                ? "Search finished. iOS did not report a connected controller to this app."
-                : "Found: \(self.systemGameControllers.joined(separator: "; "))"
+        if !systemGameControllers.isEmpty {
+            gameControllerDiscoveryState = "Connected: \(systemGameControllers.joined(separator: "; "))"
+            return
         }
+        isSearchingForGameControllers = true
+        gameControllerDiscoveryState = "Searching for controllers paired with iOS…"
+        let timeout = DispatchWorkItem { [weak self] in self?.finishGameControllerDiscovery() }
+        gameControllerSearchTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: timeout)
+        GCController.startWirelessControllerDiscovery { [weak self] in
+            DispatchQueue.main.async { [weak self] in self?.finishGameControllerDiscovery() }
+        }
+    }
+    private func finishGameControllerDiscovery() {
+        guard isSearchingForGameControllers else { return }
+        gameControllerSearchTimeout?.cancel()
+        gameControllerSearchTimeout = nil
+        isSearchingForGameControllers = false
+        GCController.stopWirelessControllerDiscovery()
+        refreshSystemGameControllers()
+        gameControllerDiscoveryState = systemGameControllers.isEmpty
+            ? "Search ended. iOS did not report a connected game controller to this app."
+            : "Found: \(systemGameControllers.joined(separator: "; "))"
     }
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {

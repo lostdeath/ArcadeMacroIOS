@@ -18,7 +18,8 @@ struct DeviceView: View {
                         }
                         Text("Name reported by iOS Game Controller. This confirms the paired gamepad name, but does not identify which BLE scan entry it matches.").font(.caption).foregroundStyle(.secondary)
                     }
-                    Button("Search for iOS game controller") { bluetooth.discoverSystemGameControllers() }
+                    Button(bluetooth.isSearchingForGameControllers ? "Searching for controller…" : "Search for iOS game controller") { bluetooth.discoverSystemGameControllers() }
+                        .disabled(bluetooth.isSearchingForGameControllers)
                     if !bluetooth.gameControllerDiscoveryState.isEmpty {
                         Text(bluetooth.gameControllerDiscoveryState).font(.caption).foregroundStyle(.secondary)
                     }
