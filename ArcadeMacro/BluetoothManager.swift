@@ -1,5 +1,6 @@
 import Foundation
 import CoreBluetooth
+import GameController
 import Combine
 
 struct BLECharacteristic: Identifiable {
@@ -36,15 +37,33 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var services: [CBUUID] = []
     @Published var rows: [BLECharacteristic] = []
     @Published var log: [String] = []
+    @Published var systemGameControllers: [String] = []
     private var central: CBCentralManager!
     private var characteristics: [String: CBCharacteristic] = [:]
     private var pendingPeripheral: CBPeripheral?
     private var connectionTimeout: DispatchWorkItem?
+    private var gameControllerObservers: [NSObjectProtocol] = []
     var isConnecting: Bool { pendingPeripheral != nil }
 
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
+        let center = NotificationCenter.default
+        gameControllerObservers.append(center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshSystemGameControllers()
+        })
+        gameControllerObservers.append(center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshSystemGameControllers()
+        })
+        refreshSystemGameControllers()
+    }
+    private func refreshSystemGameControllers() {
+        systemGameControllers = GCController.controllers().map { controller in
+            let name = controller.vendorName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let category = controller.productCategory
+            if let name, !name.isEmpty { return "\(name) · \(category)" }
+            return category
+        }
     }
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
@@ -146,6 +165,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     }
     func diagnosticReport() -> String {
         var lines = ["8BitDo Macro Lab Bluetooth report", "State: \(state)"]
+        lines.append("iOS game controllers: \(systemGameControllers.isEmpty ? "none" : systemGameControllers.joined(separator: "; "))")
         lines.append("Connected device: \(connected?.name ?? "none")")
         lines.append("Pending connection: \(pendingPeripheral.map { "\(deviceName($0)) [\(shortID($0.identifier))]" } ?? "none")")
         lines.append("Discovered devices:")
