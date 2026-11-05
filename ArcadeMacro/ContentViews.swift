@@ -11,12 +11,16 @@ struct DeviceView: View {
             List {
                 Section("iOS game controller") {
                     if bluetooth.systemGameControllers.isEmpty {
-                        Text("iOS has not reported a connected game controller to this app. Pair the stick in Settings, then return here.").font(.caption).foregroundStyle(.secondary)
+                        Text("No controller name reported yet. Make sure the stick is awake and connected in iPhone Bluetooth Settings, then search here.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(bluetooth.systemGameControllers.enumerated()), id: \.offset) { _, name in
                             Label(name, systemImage: "gamecontroller.fill")
                         }
                         Text("Name reported by iOS Game Controller. This confirms the paired gamepad name, but does not identify which BLE scan entry it matches.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("Search for iOS game controller") { bluetooth.discoverSystemGameControllers() }
+                    if !bluetooth.gameControllerDiscoveryState.isEmpty {
+                        Text(bluetooth.gameControllerDiscoveryState).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section { Text(bluetooth.state).font(.subheadline); Button("Scan for Bluetooth devices") { bluetooth.scan() }.disabled(bluetooth.connected != nil || bluetooth.isConnecting)

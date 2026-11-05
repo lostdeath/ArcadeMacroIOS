@@ -38,6 +38,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var rows: [BLECharacteristic] = []
     @Published var log: [String] = []
     @Published var systemGameControllers: [String] = []
+    @Published var gameControllerDiscoveryState = ""
     private var central: CBCentralManager!
     private var characteristics: [String: CBCharacteristic] = [:]
     private var pendingPeripheral: CBPeripheral?
@@ -63,6 +64,17 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
             let category = controller.productCategory
             if let name, !name.isEmpty { return "\(name) · \(category)" }
             return category
+        }
+    }
+    func discoverSystemGameControllers() {
+        refreshSystemGameControllers()
+        gameControllerDiscoveryState = "Searching for controllers paired with iOS…"
+        GCController.startWirelessControllerDiscovery { [weak self] in
+            guard let self else { return }
+            self.refreshSystemGameControllers()
+            self.gameControllerDiscoveryState = self.systemGameControllers.isEmpty
+                ? "Search finished. iOS did not report a connected controller to this app."
+                : "Found: \(self.systemGameControllers.joined(separator: "; "))"
         }
     }
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -166,6 +178,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     func diagnosticReport() -> String {
         var lines = ["8BitDo Macro Lab Bluetooth report", "State: \(state)"]
         lines.append("iOS game controllers: \(systemGameControllers.isEmpty ? "none" : systemGameControllers.joined(separator: "; "))")
+        if !gameControllerDiscoveryState.isEmpty { lines.append("iOS controller search: \(gameControllerDiscoveryState)") }
         lines.append("Connected device: \(connected?.name ?? "none")")
         lines.append("Pending connection: \(pendingPeripheral.map { "\(deviceName($0)) [\(shortID($0.identifier))]" } ?? "none")")
         lines.append("Discovered devices:")
