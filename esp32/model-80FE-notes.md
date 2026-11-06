@@ -27,6 +27,14 @@ USB host interface, then expose read-only connection and descriptor status over
 the existing BLE service. A powered USB host connection is required. Do not
 connect the stick to the board's UART/programming port.
 
+Direct-cable test on 2026-11-05: the ESP32 was powered through its COM/UART port
+from a separate USB supply, and the 80FE stick in S mode was connected directly
+to the board's USB port. The ESP32 remained reachable over BLE and reported
+`USB=HOST_READY_NO_GAMEPAD`; the stick did not light up. This establishes that
+the tested direct connection did not provide a usable powered USB host link.
+It does not measure VBUS voltage or isolate whether cable role detection also
+contributed. The next test needs a powered host adapter with correct USB roles.
+
 Sources:
 
 - Owner's Windows USB and HID observations, 2026-11-05.
