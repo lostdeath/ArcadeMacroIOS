@@ -4,3 +4,4 @@ DerivedData/
 artifacts/
 *.xcuserstate
 .DS_Store
+__pycache__/
