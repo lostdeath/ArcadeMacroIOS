@@ -29,6 +29,26 @@ final class MacroStore: ObservableObject {
     func addMacro() { let m = GameMacro(name: "Macro \(macros.count + 1)"); macros.append(m); selectedID = m.id }
     func append(button: String, duration: Int = 100) { guard let i = selectedIndex else { return }; macros[i].steps.append(MacroStep(button: button, durationMs: duration)) }
     func removeStep(_ id: UUID) { guard let i = selectedIndex else { return }; macros[i].steps.removeAll { $0.id == id } }
+    func removeSteps(at offsets: IndexSet) { guard let i = selectedIndex else { return }; macros[i].steps.remove(atOffsets: offsets) }
+    func moveSteps(from source: IndexSet, to destination: Int) { guard let i = selectedIndex else { return }; macros[i].steps.move(fromOffsets: source, toOffset: destination) }
+    func setDuration(_ ms: Int, for id: UUID) {
+        guard let i = selectedIndex, let j = macros[i].steps.firstIndex(where: { $0.id == id }) else { return }
+        macros[i].steps[j].durationMs = ms
+    }
+    func clearSteps() { guard let i = selectedIndex else { return }; macros[i].steps.removeAll() }
+    func deleteSelectedMacro() {
+        guard let i = selectedIndex else { return }
+        macros.remove(at: i)
+        if macros.isEmpty { macros = [GameMacro(name: "New Macro")] }
+        selectedID = macros[min(i, macros.count - 1)].id
+    }
+    func duplicateSelectedMacro() {
+        guard let i = selectedIndex else { return }
+        var copy = macros[i]; copy.id = UUID(); copy.name += " copy"
+        copy.steps = copy.steps.map { MacroStep(button: $0.button, durationMs: $0.durationMs) }
+        macros.insert(copy, at: i + 1); selectedID = copy.id
+    }
+    var selectedMacro: GameMacro? { selectedIndex.map { macros[$0] } }
     func toggleRecording() {
         if recording { stopRecording(); return }
         recording = true

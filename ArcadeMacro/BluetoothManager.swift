@@ -48,6 +48,14 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     @Published var stickSettings: StickSettings?
     @Published var stickBusy = false
     @Published var stickMessage = ""
+    /// Last "READY v3; USB=...; MODE=..." line from the bridge's status characteristic.
+    @Published var bridgeStatusLine = ""
+    /// Raw bytes of the latest stick input report (first 12 bytes).
+    @Published var bridgeInputBytes: [UInt8] = []
+    /// Increments after each verified write, so screens can show a success state.
+    @Published var stickWriteCount = 0
+    @Published var isFindingBridge = false
+    private var findBridgeTimeout: DispatchWorkItem?
     private var stickIncoming = [UInt8](repeating: 0, count: StickSettings.size)
     private var stickOpID = 0
     @Published var systemGameControllers: [String] = []
@@ -117,7 +125,9 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     }
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
-        case .poweredOn: state = "Bluetooth ready. Scan for nearby devices."
+        case .poweredOn:
+            state = "Bluetooth ready. Scan for nearby devices."
+            connectToBridge()
         case .poweredOff: state = "Bluetooth is off. Turn it on in Settings."
         case .unauthorized: state = "Bluetooth permission is not authorized."
         case .unsupported: state = "Bluetooth LE is unavailable on this device."
@@ -127,6 +137,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
     }
     func scan() {
         guard central.state == .poweredOn else { return }
+        isFindingBridge = false; findBridgeTimeout?.cancel(); findBridgeTimeout = nil
         devices = []; services = []; rows = []; characteristics = [:]
         state = "Scanning for 8 seconds…"
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
@@ -136,8 +147,36 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
             self.state = self.devices.isEmpty ? "No BLE devices found. A controller paired as Bluetooth HID may be hidden from apps." : "Scan complete. Tap a device to connect."
         }
     }
+    /// Finds the ArcadeMacro Bridge by its service and connects automatically.
+    func connectToBridge() {
+        guard central.state == .poweredOn, connected == nil, pendingPeripheral == nil, !isFindingBridge else { return }
+        isFindingBridge = true
+        state = "Looking for ArcadeMacro Bridge…"
+        central.scanForPeripherals(withServices: [Self.bridgeServiceUUID], options: nil)
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.isFindingBridge else { return }
+            self.isFindingBridge = false
+            self.central.stopScan()
+            self.state = "Bridge not found. Make sure the ESP32 is powered (its light is blue) and close to the phone."
+        }
+        findBridgeTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
+    }
+    var stickPluggedIn: Bool { bridgeReady && bridgeStatusLine.contains("HID_GAMEPAD_CONNECTED") }
+    /// After reading or writing, the stick stays in 8BitDo setup mode until it is unplugged and plugged back in.
+    var stickInSetupMode: Bool { bridgeReady && bridgeStatusLine.contains("MODE=CONFIG") }
+
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        if isFindingBridge {
+            let ads = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+            if ads.contains(Self.bridgeServiceUUID) || name == "ArcadeMacro Bridge" || peripheral.name == "ArcadeMacro Bridge" {
+                isFindingBridge = false
+                findBridgeTimeout?.cancel(); findBridgeTimeout = nil
+                connect(peripheral)
+                return
+            }
+        }
         let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []).map(\.uuidString).sorted()
         let manufacturer = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data)?.prefix(32).map { String(format: "%02X", $0) }.joined(separator: " ")
         let item = BLEDevice(id: peripheral.identifier, peripheral: peripheral, advertisedName: name, rssi: rssi.intValue, advertisedServices: advertisedServices, manufacturerData: manufacturer)
@@ -187,7 +226,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         if pendingPeripheral?.identifier == peripheral.identifier { pendingPeripheral = nil }
         if connected?.identifier == peripheral.identifier { connected = nil; services = []; rows = []; characteristics = [:] }
         if wasActive { bridgeStatus = "Bridge not connected." }
-        if wasActive { bridgeInput = "No stick input yet."; stickSettings = nil; stickBusy = false }
+        if wasActive { bridgeInput = "No stick input yet."; stickSettings = nil; stickBusy = false; bridgeStatusLine = ""; bridgeInputBytes = [] }
         if wasActive { state = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected." }
         log.insert("BLE disconnected from \(deviceName(peripheral))", at: 0)
     }
@@ -228,7 +267,12 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
             bridgeStatus = characteristic.value.flatMap { String(data: $0, encoding: .utf8) } ?? "Bridge sent an unreadable response."
             log.insert("Bridge: \(bridgeStatus)", at: 0)
         }
+        if characteristic.uuid == Self.bridgeStatusUUID || characteristic.uuid == Self.bridgeResponseUUID,
+           let text = characteristic.value.flatMap({ String(data: $0, encoding: .utf8) }), text.hasPrefix("READY") {
+            bridgeStatusLine = text
+        }
         if characteristic.uuid == Self.bridgeInputUUID, let bytes = characteristic.value, bytes.count >= 12 {
+            bridgeInputBytes = Array(bytes.prefix(12))
             bridgeInput = bytes.prefix(12).map { String(format: "%02X", $0) }.joined(separator: " ")
         }
     }
@@ -303,6 +347,7 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
         } else if text.hasPrefix("WRITE OK") {
             stickBusy = false
             stickMessage = text == "WRITE OK UNCHANGED" ? "Nothing to change on the stick." : "Saved and verified on the stick."
+            stickWriteCount += 1
             readStick()
         } else if text.hasPrefix("READ ERR") || text.hasPrefix("WRITE ERR") || text == "ERR BUSY" {
             stickBusy = false

@@ -8,11 +8,15 @@ struct ArcadeMacroApp: App {
     var body: some Scene {
         WindowGroup {
             TabView {
-                DeviceView().environmentObject(bluetooth)
-                    .tabItem { Label("Bluetooth", systemImage: "dot.radiowaves.left.and.right") }
-                MacroView().environmentObject(macros).environmentObject(bluetooth)
-                    .tabItem { Label("Macros", systemImage: "list.number") }
+                StickHomeView()
+                    .tabItem { Label("Stick", systemImage: "gamecontroller.fill") }
+                MacroEditorView()
+                    .tabItem { Label("Macros", systemImage: "square.grid.3x2.fill") }
+                DeviceView()
+                    .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
             }
+            .environmentObject(bluetooth)
+            .environmentObject(macros)
             .tint(.red)
         }
     }

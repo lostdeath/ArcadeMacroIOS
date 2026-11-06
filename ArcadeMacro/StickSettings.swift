@@ -141,3 +141,31 @@ enum StickConversionError: Error, CustomStringConvertible {
         }
     }
 }
+
+extension StickSettings {
+    /// Returns settings with `macro` placed in stick macro slot `slot` (0 or 1).
+    /// Any other macro that uses the same trigger button is removed, because one
+    /// button can only play one macro.
+    func placing(_ macro: StickMacro, inSlot slot: Int) -> StickSettings {
+        var list = macros
+        let target = min(slot, list.count)
+        if target < list.count { list[target] = macro } else { list.append(macro) }
+        list = list.enumerated().filter { $0.offset == target || $0.element.trigger != macro.trigger }.map(\.element)
+        var updated = self
+        updated.setMacros(Array(list.prefix(Self.maxMacros)))
+        return updated
+    }
+
+    /// Settings with every macro removed from the active profile ("restore to normal").
+    func removingAllMacros() -> StickSettings {
+        var updated = self
+        updated.setMacros([])
+        return updated
+    }
+}
+
+extension StickMacro {
+    /// Step names in the app's editor format ("A", "Down+Right", "Wait").
+    var stepNames: [String] { steps.map { StickButtons.stepName($0.buttons) } }
+    var triggerName: String { StickButtons.triggerName(trigger) }
+}
