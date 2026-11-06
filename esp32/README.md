@@ -1,31 +1,34 @@
-# ESP32-S3 BLE bridge: first connection test
+# ESP32-S3 BLE bridge and read-only USB host test
 
 This firmware is for the ESP32-S3-DevKitC-1-N16R8. It creates an iPhone-visible
-BLE service named **ArcadeMacro Bridge**. This first stage tests the phone-to-board
-link only. The board does not yet connect to or change the 8BitDo stick.
+BLE service named **ArcadeMacro Bridge**. Firmware v2 also starts the ESP32-S3
+USB host and recognizes a USB HID gamepad. It reads gamepad input reports for
+diagnostics; it does not change the 8BitDo stick's settings.
 
 ## Flash with Arduino IDE
 
 1. Install Arduino IDE and Espressif's **esp32** board package.
-2. Connect the board with a data-capable USB cable. On a two-port DevKitC-1,
-   use the port labelled **USB** or **UART** for the first flash; note which
-   serial port appears in Windows Device Manager.
+2. Connect the board's **COM/UART** port to the PC with a data-capable USB cable.
+   This also powers the ESP32. Note the new COM port in Windows Device Manager.
 3. Open `ArcadeMacroBridge/ArcadeMacroBridge.ino`.
-4. Choose **ESP32S3 Dev Module**, **16MB Flash**, **8MB PSRAM**, and the new
-   serial port. Leave other options at board defaults.
+4. Choose **ESP32S3 Dev Module**, **16MB Flash**, **USB-OTG (TinyUSB)** for USB
+   Mode, **Disabled** for USB CDC On Boot, and the new COM port. The sketch
+   does not require PSRAM. Set a 16MB partition scheme such as **16M Flash
+   (3MB APP/9.9MB FATFS)**.
 5. Upload, then open Serial Monitor at **115200 baud**. It should print
    `BLE advertising as ArcadeMacro Bridge`.
 6. In a build of the iPhone app containing bridge support, scan and connect
    to **ArcadeMacro Bridge**. The bridge status should read
-   `READY v1; USB=NOT_CONNECTED; STICK_WRITES=DISABLED`. Tap **Ping bridge**;
+   `READY v2; USB=HOST_READY_NO_GAMEPAD; STICK_WRITES=DISABLED` before a USB
+   gamepad is attached. Tap **Ping bridge**;
    the response should be `PONG v1`.
 
 For an independent PC check, install `bleak` with `python -m pip install bleak`
 and run `python esp32/verify_ble.py` from the project root. It scans for the
 bridge, reads status, sends `PING`, and requires `PONG v1`.
 
-If no serial port appears, try the other USB port and another data-capable
-cable. This sketch does not use the native USB port as a host yet.
+If no serial port appears, try another data-capable cable. The **USB** port is
+reserved for the host connection and is not the serial monitor in this build.
 
 ## BLE protocol v1
 
@@ -34,7 +37,7 @@ contains:
 
 | Characteristic suffix | Properties | Meaning |
 | --- | --- | --- |
-| `0002` | Read | Board status |
+| `0002` | Read, Notify | Board and USB host status |
 | `0003` | Write with response | `PING` or `STATUS` command |
 | `0004` | Read, Notify | Command response |
 
@@ -42,10 +45,18 @@ The full UUID of each characteristic is the service UUID with the first group
 changed to `A8C70002`, `A8C70003`, or `A8C70004`. Any other command receives
 `ERR UNKNOWN_COMMAND`. No macro upload command exists in this version.
 
-## Next hardware step
+## USB host connection
 
-After identifying the exact arcade stick model, inspect its USB descriptors
-and settings protocol. USB host operation requires a 5 V supply for the stick;
-the DevKitC-1's native USB connector alone does not establish a powered host
-setup. Keep the controller settings write path disabled until its complete
-settings block can be read and preserved.
+The 80FE stick appeared on the owner's PC as `057E:2009` USB HID in S mode and
+`045E:028E` Xbox 360 controller in X mode. Use S mode for the first host test.
+USB host operation requires a separate 5 V supply for the stick. Power the
+ESP32 through **COM/UART**, connect its **USB** data port to a suitable powered
+USB host adapter or hub, and connect the stick to that powered setup. Confirm
+the connector roles before cabling; a plain USB-C cable may leave both ends
+acting as devices and provide no power to the stick.
+
+With the host connection working, status changes to
+`READY v2; USB=HID_GAMEPAD_CONNECTED; STICK_WRITES=DISABLED`. The COM/UART serial
+monitor prints the first 16 bytes of changed input reports. Controller settings
+writes remain disabled until the complete settings block and command protocol
+are established.
