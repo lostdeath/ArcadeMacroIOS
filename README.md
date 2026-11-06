@@ -1,6 +1,18 @@
 # ArcadeMacro iOS
 
-SwiftUI/Core Bluetooth utility for iPhone, with a BLE scanner, GATT service and characteristic inspector, a copyable scan report with RSSI and advertised-service details, a timed macro sequence editor, and JSON export. The GitHub Actions workflow builds the device app without a signing identity and packages the `.app` into an unsigned IPA artifact for later signing with Sideloadly.
+iPhone app for building macros for the 8BitDo Arcade Stick (model 80FE) and
+saving them on the stick through an ESP32-S3 Bluetooth bridge.
+
+- **Stick tab:** a drawing of the stick that lights up as you press real
+  buttons, a connect / plug in / load checklist, the stick's two macro slots,
+  and **Restore to normal** (removes all macros; button layout is untouched).
+- **Macros tab:** tap buttons on the drawing to add steps (combos and joystick
+  diagonals supported), choose how long each press lasts, add pauses, reorder,
+  and preview the sequence.
+- **Put on stick:** pick the trigger button (P1, P2 or a face button) and the
+  macro slot, then send. The bridge writes only the macro section and reads it
+  back to verify.
+- **Advanced tab:** raw Bluetooth scanner and diagnostics.
 
 ## Build
 
