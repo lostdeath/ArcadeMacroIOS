@@ -61,6 +61,37 @@ stick -> ESP32 USB host -> BLE notify (`a8c70005`) -> iPhone for read-only
 input. The bridge does not present itself to iOS as a game controller, so games
 do not see this input. Controller settings writes remain disabled.
 
+## Settings protocol (decoded 2026-11-06)
+
+Sources: USB captures of the official software syncing profile "New01", and the
+decompiled .NET types `ArcadeStickAdvance`, `BasicAdvanceUIData`,
+`Advance.Hid.Switch`. Bridge firmware v3 reproduces all 27 captured OUT packets
+byte-for-byte.
+
+Entering config mode (stick in S mode, `057E:2009`, interrupt OUT, 64 bytes):
+`01 66 AA 00 21 01` (version) -> reply `81 66 A5 90 1A ...`; then
+`01 66 AA 00 51 01` (changeDinput) -> stick re-enumerates as `2DC8:901A`.
+**Never send `01 66 AA 00 50 01`: that is `boot_CMD` (firmware-update mode).**
+
+Config mode packets (`2DC8:901A`, 64-byte interrupt OUT/IN):
+`81, 17+n, 04, cmd, CC x7, n, CC, 34 02 (total 564 LE), off LE, CC CC, data[n]`
+with n <= 45. `cmd 0C` = read chunk (reply `02 04 04 00 00 00 0C ...`, data at
+byte 18), `0B` = write chunk, then `81 11 04 06 00 00 00 15` = save (reply cmd 06).
+
+Block (564 bytes): u16 CRC (CRC-16 reflected poly 0x1021, init 0xFFFF, over
+bytes 2..563, little-endian), u8 struct_ver, u8 platform (0 = Switch slot,
+1 = Windows slot), then 2 slots x 280 bytes: u32 flag `0x20191212`, 32-byte
+UTF-16 name, macro_fun (u32 flag, u8 count, pad, 2 x {u32 trigger, u16 ms[18],
+u16 buttons[18], u8 steps, pad}), map_key (u32 flag, u32 key[18]).
+Button bits: A 0x2000, B 0x1000, X 0x10, Y 0x20, L1 0x400, R1 0x800, L2 0x4000,
+R2 0x8000, L3 0x2, R3 0x4, SELECT 0x8, START 0x1, STAR 0x10000, HOME 0x20000,
+UP 0x200, DOWN 0x100, LEFT 0x80, RIGHT 0x40, P1 0x2000000, P2 0x4000000.
+
+First macro write on 2026-11-06 through the bridge: P1 -> A, wait, B, wait, A
+(100 ms each) written to slot 0 of profile "New01", saved, and read back
+identical; mappings unchanged. Use `stick_settings.py --clear-macros` (or the
+app's "Restore to normal") to remove macros.
+
 Sources:
 
 - Owner's Windows USB and HID observations, 2026-11-05.

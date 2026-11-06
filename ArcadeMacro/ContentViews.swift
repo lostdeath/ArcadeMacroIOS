@@ -85,10 +85,16 @@ struct DeviceView: View {
 
 struct MacroView: View {
     @EnvironmentObject private var store: MacroStore
+    @EnvironmentObject private var bluetooth: BluetoothManager
     @State private var newButton = "A"
+    @State private var trigger: UInt32 = 0x0200_0000
+    @State private var stickSlot = 0
+    @State private var pendingStick: StickSettings?
+    @State private var pendingSummary = ""
+    @State private var conversionError: String?
     @State private var duration = 100.0
     @State private var exported = false
-    private let buttons = ["A", "B", "X", "Y", "L", "R", "ZL", "ZR", "Start", "Select", "Up", "Down", "Left", "Right"]
+    private let buttons = ["A", "B", "X", "Y", "L", "R", "ZL", "ZR", "Up", "Down", "Left", "Right", "Wait", "Start", "Select"]
     var body: some View {
         NavigationView {
             List {
@@ -114,13 +120,75 @@ struct MacroView: View {
                     } else { Text("No steps yet.").foregroundStyle(.secondary) }
                     Button("Export macro JSON") { exported = true }
                 }
-                Section("Send to controller") {
-                    Label("Macro upload is not enabled yet", systemImage: "exclamationmark.bluetooth")
-                    Text("The app must first read the full settings block, update only the selected macro data, and preserve all mappings before writing it back. The Bluetooth tab is for discovering whether iOS can reach the needed report transport.").font(.caption).foregroundStyle(.secondary)
+                Section("Send to stick (ESP32 bridge)") {
+                    if !bluetooth.stickSupported {
+                        Label("Connect to ArcadeMacro Bridge on the Bluetooth tab first", systemImage: "antenna.radiowaves.left.and.right")
+                        Text("The stick must be plugged into the ESP32's USB port. Bridge firmware v3 or newer is required.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button(bluetooth.stickSettings == nil ? "Read macros from stick" : "Refresh from stick") { bluetooth.readStick() }
+                            .disabled(bluetooth.stickBusy)
+                        if let settings = bluetooth.stickSettings {
+                            Text("Profile: \(settings.profileName) · \(settings.activeModeName) slot").font(.subheadline)
+                            let onStick = settings.macros
+                            if onStick.isEmpty { Text("No macros on the stick.").foregroundStyle(.secondary) }
+                            ForEach(Array(onStick.enumerated()), id: \.offset) { n, m in
+                                Text("Stick macro \(n + 1): \(m.summary)").font(.caption)
+                            }
+                            Picker("Trigger button", selection: $trigger) {
+                                ForEach(StickButtons.triggers.indices, id: \.self) { i in Text(StickButtons.triggers[i].name).tag(StickButtons.triggers[i].mask) }
+                            }
+                            Picker("Stick macro slot", selection: $stickSlot) {
+                                Text("Macro 1").tag(0); Text("Macro 2").tag(1)
+                            }.pickerStyle(.segmented)
+                            Button("Send \"\(currentName)\" to stick") { prepareSend(settings) }
+                                .disabled(bluetooth.stickBusy)
+                            Button("Restore to normal (remove all macros)", role: .destructive) { prepareRestore(settings) }
+                                .disabled(bluetooth.stickBusy || onStick.isEmpty)
+                        }
+                    }
+                    if bluetooth.stickBusy { ProgressView() }
+                    if !bluetooth.stickMessage.isEmpty { Text(bluetooth.stickMessage).font(.caption) }
+                    Text("Only the macro section of the stick's active profile is changed. Button mappings are protected by the bridge firmware, and every write is read back to check it. Up to 2 macros, 18 steps each; Start and Select can't be used inside stick macros.").font(.caption2).foregroundStyle(.secondary)
                 }
             }.navigationTitle("Macro Editor")
+                .alert("Change stick macros?", isPresented: Binding(get: { pendingStick != nil }, set: { if !$0 { pendingStick = nil } })) {
+                    Button("Write to stick", role: .destructive) {
+                        if let s = pendingStick { bluetooth.writeStick(s) }
+                        pendingStick = nil
+                    }
+                    Button("Cancel", role: .cancel) { pendingStick = nil }
+                } message: { Text(pendingSummary) }
+                .alert("Can't send this macro", isPresented: Binding(get: { conversionError != nil }, set: { if !$0 { conversionError = nil } })) {
+                    Button("OK", role: .cancel) {}
+                } message: { Text(conversionError ?? "") }
                 .fileExporter(isPresented: $exported, document: MacroDocument(data: selectedJSON), contentType: .json, defaultFilename: "macro.json") { _ in }
         }
+    }
+    private var currentName: String {
+        guard let i = store.selectedIndex else { return "macro" }
+        return store.macros[i].name
+    }
+    private func prepareSend(_ settings: StickSettings) {
+        guard let i = store.selectedIndex else { return }
+        switch StickButtons.convert(store.macros[i], trigger: trigger) {
+        case .failure(let error): conversionError = error.description
+        case .success(let macro):
+            var list = settings.macros
+            let target = min(stickSlot, list.count)
+            if target < list.count { list[target] = macro } else { list.append(macro) }
+            // One macro per trigger button: drop any other macro using the same trigger.
+            list = list.enumerated().filter { $0.offset == target || $0.element.trigger != trigger }.map(\.element)
+            var updated = settings
+            updated.setMacros(Array(list.prefix(StickSettings.maxMacros)))
+            pendingSummary = "Write \"\(currentName)\" to the stick as \(macro.summary)?"
+            pendingStick = updated
+        }
+    }
+    private func prepareRestore(_ settings: StickSettings) {
+        var updated = settings
+        updated.setMacros([])
+        pendingSummary = "Remove all macros from the \(settings.profileName) profile? Button mappings are not changed."
+        pendingStick = updated
     }
     private var nameBinding: Binding<String> {
         Binding(get: { guard let i = store.selectedIndex else { return "" }; return store.macros[i].name }, set: { value in guard let i = store.selectedIndex else { return }; store.macros[i].name = value })

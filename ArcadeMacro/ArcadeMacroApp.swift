@@ -10,7 +10,7 @@ struct ArcadeMacroApp: App {
             TabView {
                 DeviceView().environmentObject(bluetooth)
                     .tabItem { Label("Bluetooth", systemImage: "dot.radiowaves.left.and.right") }
-                MacroView().environmentObject(macros)
+                MacroView().environmentObject(macros).environmentObject(bluetooth)
                     .tabItem { Label("Macros", systemImage: "list.number") }
             }
             .tint(.red)

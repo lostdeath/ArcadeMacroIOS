@@ -43,12 +43,18 @@ contains:
 | Characteristic suffix | Properties | Meaning |
 | --- | --- | --- |
 | `0002` | Read, Notify | Board and USB host status |
-| `0003` | Write with response | `PING` or `STATUS` command |
-| `0004` | Read, Notify | Command response |
+| `0003` | Write with response | `PING`, `STATUS`, `READ` or `WRITE` command |
+| `0004` | Read, Notify | Command response (`READ OK 564`, `WRITE OK`, `... ERR <reason>`) |
+| `0005` | Read, Notify | Live stick input (first 12 bytes of each changed report) |
+| `0006` | Read, Write, Notify | Settings block transfer: `[offset lo, offset hi, up to 16 bytes]` |
 
 The full UUID of each characteristic is the service UUID with the first group
 changed to `A8C70002`, `A8C70003`, or `A8C70004`. Any other command receives
-`ERR UNKNOWN_COMMAND`. No macro upload command exists in this version.
+`ERR UNKNOWN_COMMAND`. Firmware v3 adds `READ` (switch the stick to config mode,
+read and CRC-check the 564-byte settings block, stream it on `0006`) and `WRITE`
+(write the block uploaded on `0006`). `WRITE` only proceeds after a `READ`, rejects
+any change outside the two macro sections, recomputes the CRC, saves, and reads
+the block back to verify. `stick_settings.py` exercises both from a PC.
 
 ## USB host connection
 
