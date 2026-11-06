@@ -76,7 +76,7 @@ public:
     bool ours = (vid == kVidNintendo && pid == kPidSwitchPro) || vid == kVid8BitDo;
     if (!ours || !bindHidInterface(dev_addr, idx)) return false;
     portENTER_CRITICAL(&mux_);
-    vid_ = vid; outPending_ = false; respReady_ = false; inputReady_ = false;
+    vid_ = vid; outPending_ = false; respHead_ = respTail_ = 0; inputReady_ = false;
     portEXIT_CRITICAL(&mux_);
     return true;
   }
@@ -92,7 +92,14 @@ public:
     bool isResponse = n >= 2 && ((r[0] == 0x81 && r[1] == 0x66) ||  // Switch-mode reply
                                  (r[0] == 0x02 && r[1] == 0x04));   // config-mode reply
     portENTER_CRITICAL(&mux_);
-    if (isResponse) { memset(resp_, 0, 64); memcpy(resp_, r, n); respReady_ = true; }
+    if (isResponse) {
+      // Small FIFO so a late or repeated reply can't overwrite the one we want.
+      uint8_t next = (respHead_ + 1) % kRespSlots;
+      if (next == respTail_) respTail_ = (respTail_ + 1) % kRespSlots;  // drop oldest
+      memset(resp_[respHead_], 0, 64);
+      memcpy(resp_[respHead_], r, n);
+      respHead_ = next;
+    }
     else { memset(input_, 0, 64); memcpy(input_, r, n); inputLen_ = n; inputReady_ = true; }
     portEXIT_CRITICAL(&mux_);
   }
@@ -111,13 +118,13 @@ public:
 
   void queue(const uint8_t *pkt) {
     portENTER_CRITICAL(&mux_);
-    memcpy(out_, pkt, 64); respReady_ = false; outPending_ = true;
+    memcpy(out_, pkt, 64); respHead_ = respTail_ = 0; outPending_ = true;
     portEXIT_CRITICAL(&mux_);
   }
   bool takeResponse(uint8_t *dst) {
     bool ok = false;
     portENTER_CRITICAL(&mux_);
-    if (respReady_) { memcpy(dst, resp_, 64); respReady_ = false; ok = true; }
+    if (respTail_ != respHead_) { memcpy(dst, resp_[respTail_], 64); respTail_ = (respTail_ + 1) % kRespSlots; ok = true; }
     portEXIT_CRITICAL(&mux_);
     return ok;
   }
@@ -132,9 +139,11 @@ public:
 private:
   portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   volatile uint16_t vid_ = 0;
-  uint8_t out_[64] = {}, resp_[64] = {}, input_[64] = {};
+  static constexpr uint8_t kRespSlots = 8;
+  uint8_t out_[64] = {}, resp_[kRespSlots][64] = {}, input_[64] = {};
+  volatile uint8_t respHead_ = 0, respTail_ = 0;
   uint16_t inputLen_ = 0;
-  volatile bool outPending_ = false, respReady_ = false, inputReady_ = false;
+  volatile bool outPending_ = false, inputReady_ = false;
 };
 
 static StickLink stick;
@@ -170,7 +179,7 @@ static String currentStatus() {
                          : stick.mounted() ? "HID_GAMEPAD_CONNECTED"
                                            : "HOST_READY_NO_GAMEPAD";
   const char *mode = stickMode() == 2 ? "CONFIG" : stickMode() == 1 ? "SWITCH" : "NONE";
-  return String("READY v3; USB=") + usbState + "; MODE=" + mode +
+  return String("READY v3.1; USB=") + usbState + "; MODE=" + mode +
          "; STICK_WRITES=MACROS_ONLY";
 }
 
@@ -194,16 +203,35 @@ static void updateStatusLed() {
   }
 }
 
-// Pump USB until a response arrives or the timeout passes.
-static bool transact(const uint8_t *pkt, uint8_t *resp, uint32_t timeoutMs) {
+// Send a packet, then pump USB until a reply that `matches` arrives or the
+// timeout passes. Replies that don't match (late or repeated answers to an
+// earlier packet) are skipped instead of failing the request.
+typedef bool (*ReplyMatch)(const uint8_t *resp, uint8_t cmd, uint8_t n, uint16_t off);
+static bool transact(const uint8_t *pkt, uint8_t *resp, uint32_t timeoutMs, ReplyMatch matches,
+                     uint8_t cmd = 0, uint8_t n = 0, uint16_t off = 0) {
   stick.queue(pkt);
   uint32_t start = millis();
   while (millis() - start < timeoutMs) {
     USBHost.task();
-    if (stick.takeResponse(resp)) return true;
+    while (stick.takeResponse(resp)) {
+      if (matches(resp, cmd, n, off)) return true;
+    }
     delay(1);
   }
   return false;
+}
+
+static bool versionReply(const uint8_t *r, uint8_t, uint8_t, uint16_t) {
+  return r[0] == 0x81 && r[1] == 0x66 && ((r[3] << 8) | r[4]) == 0x901A;
+}
+static bool readReply(const uint8_t *r, uint8_t, uint8_t n, uint16_t off) {
+  return r[0] == 0x02 && r[6] == 0x0C && r[10] == n && (r[14] | (r[15] << 8)) == off;
+}
+static bool writeReply(const uint8_t *r, uint8_t, uint8_t, uint16_t off) {
+  return r[0] == 0x02 && r[6] == 0x0B && (r[14] | (r[15] << 8)) == off;
+}
+static bool saveReply(const uint8_t *r, uint8_t, uint8_t, uint16_t) {
+  return r[0] == 0x02 && r[6] == 0x06;
 }
 
 static bool waitForConfigMode(uint32_t timeoutMs) {
@@ -224,8 +252,7 @@ static bool enterConfigMode(String &err) {
   uint8_t resp[64];
   bool ok = false;
   for (int attempt = 0; attempt < 5 && !ok; ++attempt) {
-    if (transact(pkt, resp, 300) && resp[1] == 0x66 &&
-        ((resp[3] << 8) | resp[4]) == 0x901A) ok = true;
+    if (transact(pkt, resp, 300, versionReply)) ok = true;
   }
   if (!ok) { err = "VERSION_NO_REPLY"; return false; }
   uint8_t change[64] = {0x01, 0x66, 0xAA, 0x00, 0x51, 0x01};  // changeDinput_CMD
@@ -251,9 +278,8 @@ static bool readBlock(uint8_t *dst, String &err) {
     buildHeader(pkt, 0x0C, n, off);
     memset(pkt + 19, 0xCC, n);
     bool ok = false;
-    for (int attempt = 0; attempt < 3 && !ok; ++attempt) {
-      ok = transact(pkt, resp, 500) && resp[6] == 0x0C && resp[10] == n &&
-           (resp[14] | (resp[15] << 8)) == off;
+    for (int attempt = 0; attempt < 4 && !ok; ++attempt) {
+      ok = transact(pkt, resp, 700, readReply, 0x0C, n, off);
     }
     if (!ok) { err = String("READ_CHUNK_") + off; return false; }
     memcpy(dst + off, resp + 18, n);
@@ -268,14 +294,18 @@ static bool writeBlock(const uint8_t *src, String &err) {
     uint8_t pkt[64], resp[64];
     buildHeader(pkt, 0x0B, n, off);
     memcpy(pkt + 19, src + off, n);
-    if (!(transact(pkt, resp, 800) && resp[6] == 0x0B && (resp[14] | (resp[15] << 8)) == off)) {
+    bool ok = false;
+    for (int attempt = 0; attempt < 2 && !ok; ++attempt) {
+      ok = transact(pkt, resp, 900, writeReply, 0x0B, n, off);
+    }
+    if (!ok) {
       err = String("WRITE_CHUNK_") + off;
       return false;
     }
   }
   uint8_t save[64] = {0x81, 0x11, 0x04, 0x06, 0x00, 0x00, 0x00, 0x15};
   uint8_t resp[64];
-  if (!(transact(save, resp, 2000) && resp[6] == 0x06)) { err = "SAVE_NO_ACK"; return false; }
+  if (!transact(save, resp, 2500, saveReply)) { err = "SAVE_NO_ACK"; return false; }
   return true;
 }
 
@@ -368,7 +398,7 @@ class DataCallbacks : public BLECharacteristicCallbacks {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("ArcadeMacro Bridge v3 starting");
+  Serial.println("ArcadeMacro Bridge v3.1 starting");
 
   USBHostHID.addDevice(&stick);
   usbHostStarted = USBHost.begin();

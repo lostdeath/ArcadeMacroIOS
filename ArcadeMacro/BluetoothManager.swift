@@ -351,8 +351,23 @@ final class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelega
             readStick()
         } else if text.hasPrefix("READ ERR") || text.hasPrefix("WRITE ERR") || text == "ERR BUSY" {
             stickBusy = false
-            stickMessage = "Bridge error: \(text)"
+            stickMessage = "Bridge error: \(Self.friendly(text))"
         }
+    }
+
+    /// Plain-English explanation for a bridge error code.
+    static func friendly(_ code: String) -> String {
+        let hint: String
+        if code.contains("NO_STICK") { hint = "The stick isn't plugged into the ESP32's USB port." }
+        else if code.contains("READ_CHUNK") || code.contains("VERSION_NO_REPLY") || code.contains("NO_CONFIG_MODE") || code.contains("CRC") {
+            hint = "The stick didn't answer properly. Unplug the stick from the ESP32, plug it back in, wait 3 seconds, and try again."
+        } else if code.contains("WRITE_CHUNK") || code.contains("SAVE_NO_ACK") || code.contains("VERIFY") {
+            hint = "Saving didn't finish. Nothing was changed outside macros. Unplug and replug the stick, Load again, then send again."
+        } else if code.contains("READ_FIRST") || code.contains("INCOMPLETE") { hint = "Load the stick first, then send again." }
+        else if code.contains("BUSY") { hint = "The bridge is still working. Wait a moment and try again." }
+        else if code.contains("NON_MACRO") { hint = "Blocked: that change would have touched more than macros." }
+        else { hint = "Try again." }
+        return "\(hint) (\(code))"
     }
 
     func read(_ uuid: String) {
