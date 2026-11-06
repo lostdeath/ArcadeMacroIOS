@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp32-hal-rgb-led.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -23,6 +24,25 @@ static volatile bool restartAdvertising = false;
 static USBHostHIDGamepad gamepad;
 static bool usbHostStarted = false;
 static bool lastMounted = false;
+// AITRIP's DevKitC-1 style N16R8 board uses the original GPIO48 RGB LED.
+// Official DevKitC-1 v1.1 boards use GPIO38 instead.
+static constexpr uint8_t kRgbLedPin = 48;
+static uint8_t lastLedState = 255;
+
+static void updateStatusLed() {
+  // Blue: advertising; green: phone connected; cyan: USB gamepad detected.
+  // Purple indicates that USB host initialization failed.
+  uint8_t ledState = !usbHostStarted ? 0 : gamepad.mounted() ? 3
+                                         : connected ? 2 : 1;
+  if (ledState == lastLedState) return;
+  lastLedState = ledState;
+  switch (ledState) {
+    case 0: rgbLedWrite(kRgbLedPin, 10, 0, 10); break;
+    case 1: rgbLedWrite(kRgbLedPin, 0, 0, 14); break;
+    case 2: rgbLedWrite(kRgbLedPin, 0, 14, 0); break;
+    case 3: rgbLedWrite(kRgbLedPin, 0, 10, 10); break;
+  }
+}
 
 static String currentStatus() {
   const char *usbState = !usbHostStarted ? "HOST_ERROR"
@@ -97,6 +117,7 @@ void setup() {
   advertising->addServiceUUID(kServiceUuid);
   advertising->start();
   Serial.println("BLE advertising as ArcadeMacro Bridge");
+  updateStatusLed();
 }
 
 void loop() {
@@ -125,5 +146,6 @@ void loop() {
     restartAdvertising = false;
     server->startAdvertising();
   }
+  updateStatusLed();
   delay(2);
 }

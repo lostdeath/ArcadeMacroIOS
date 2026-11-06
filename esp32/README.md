@@ -17,6 +17,11 @@ diagnostics; it does not change the 8BitDo stick's settings.
    (3MB APP/9.9MB FATFS)**.
 5. Upload, then open Serial Monitor at **115200 baud**. It should print
    `BLE advertising as ArcadeMacro Bridge`.
+   The board's large RGB LED glows dim blue while advertising, green when a
+   phone is connected, and cyan when a USB gamepad is detected. Purple means
+   USB host initialization failed. The separate red power LED stays on.
+   This sketch targets RGB LED GPIO48, used by the original DevKitC-1 and the
+   owner's AITRIP-style board; official v1.1 boards use GPIO38 instead.
 6. In a build of the iPhone app containing bridge support, scan and connect
    to **ArcadeMacro Bridge**. The bridge status should read
    `READY v2; USB=HOST_READY_NO_GAMEPAD; STICK_WRITES=DISABLED` before a USB
