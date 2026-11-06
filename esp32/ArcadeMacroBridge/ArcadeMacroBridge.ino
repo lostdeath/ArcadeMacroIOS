@@ -15,10 +15,12 @@ static constexpr char kServiceUuid[] = "a8c70001-7d2b-4f4e-a5e9-8b7b5f66e001";
 static constexpr char kStatusUuid[] = "a8c70002-7d2b-4f4e-a5e9-8b7b5f66e001";
 static constexpr char kCommandUuid[] = "a8c70003-7d2b-4f4e-a5e9-8b7b5f66e001";
 static constexpr char kResponseUuid[] = "a8c70004-7d2b-4f4e-a5e9-8b7b5f66e001";
+static constexpr char kInputUuid[] = "a8c70005-7d2b-4f4e-a5e9-8b7b5f66e001";
 
 static BLEServer *server = nullptr;
 static BLECharacteristic *status = nullptr;
 static BLECharacteristic *response = nullptr;
+static BLECharacteristic *input = nullptr;
 static volatile bool connected = false;
 static volatile bool restartAdvertising = false;
 static USBHostHIDGamepad gamepad;
@@ -28,6 +30,8 @@ static bool lastMounted = false;
 // Official DevKitC-1 v1.1 boards use GPIO38 instead.
 static constexpr uint8_t kRgbLedPin = 48;
 static uint8_t lastLedState = 255;
+static uint8_t lastInput[12] = {};
+static bool haveLastInput = false;
 
 static void updateStatusLed() {
   // Blue: advertising; green: phone connected; cyan: USB gamepad detected.
@@ -112,6 +116,12 @@ void setup() {
                          BLECharacteristic::PROPERTY_NOTIFY);
   response->setValue(currentStatus().c_str());
 
+  input = service->createCharacteristic(
+      kInputUuid, BLECharacteristic::PROPERTY_READ |
+                      BLECharacteristic::PROPERTY_NOTIFY);
+  uint8_t emptyInput[12] = {};
+  input->setValue(emptyInput, sizeof(emptyInput));
+
   service->start();
   BLEAdvertising *advertising = server->getAdvertising();
   advertising->addServiceUUID(kServiceUuid);
@@ -134,6 +144,17 @@ void loop() {
     if (gamepad.available()) {
       uint8_t report[USBHostHIDGamepad::REPORT_CAP];
       uint16_t n = gamepad.getReport(report, sizeof(report));
+      if (n >= sizeof(lastInput)) {
+        // Bytes 1-2 are a changing packet counter on this controller.
+        bool changed = !haveLastInput || report[0] != lastInput[0] ||
+                       memcmp(report + 3, lastInput + 3, sizeof(lastInput) - 3);
+        if (changed) {
+          memcpy(lastInput, report, sizeof(lastInput));
+          haveLastInput = true;
+          input->setValue(lastInput, sizeof(lastInput));
+          if (connected) input->notify();
+        }
+      }
       Serial.printf("USB HID report %u bytes:", (unsigned)n);
       for (uint16_t i = 0; i < n && i < 16; ++i) {
         Serial.printf(" %02X", report[i]);

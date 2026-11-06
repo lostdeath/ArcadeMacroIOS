@@ -27,13 +27,31 @@ USB host interface, then expose read-only connection and descriptor status over
 the existing BLE service. A powered USB host connection is required. Do not
 connect the stick to the board's UART/programming port.
 
-Direct-cable test on 2026-11-05: the ESP32 was powered through its COM/UART port
-from a separate USB supply, and the 80FE stick in S mode was connected directly
-to the board's USB port. The ESP32 remained reachable over BLE and reported
-`USB=HOST_READY_NO_GAMEPAD`; the stick did not light up. This establishes that
-the tested direct connection did not provide a usable powered USB host link.
-It does not measure VBUS voltage or isolate whether cable role detection also
-contributed. The next test needs a powered host adapter with correct USB roles.
+Cable check on 2026-11-05: the ESP32 remained reachable over BLE and reported
+`USB=HOST_READY_NO_GAMEPAD`; the stick did not light up. The owner then clarified
+that the stick had been connected to the board's COM/UART port. That port is a
+USB-to-serial interface, so this check says nothing about whether the board's
+native USB port can power or enumerate the stick. The native USB port still
+needs a separate physical test with the board powered through COM/UART.
+
+Corrected physical test later the same day: COM/UART was used for board power
+and the stick was connected to the board's native USB port in S mode. The stick's
+lights came on, but the bridge still reported `USB=HOST_READY_NO_GAMEPAD`.
+Serial diagnostics after reset showed `USB host started` and BLE advertising,
+with no gamepad mount event. This establishes a powered board and running host
+stack, but does not establish whether the stick received USB VBUS or whether
+the cable established the correct USB host role. The cable/adapter type needs
+to be identified before attributing the failure to firmware or power.
+
+Successful host test on 2026-11-06: a second AITRIP-style N16R8 board was
+flashed over CH343 COM16 with bridge firmware v2. The owner closed the board's
+back-side `USB-OTG` solder jumper, left its front-side `IN-OUT` jumper alone,
+powered COM from the PC, and connected the stick to the native USB port in S
+mode. BLE status changed to `USB=HID_GAMEPAD_CONNECTED`; serial output showed
+changing 64-byte HID input reports beginning with report ID `0x30` while the
+owner moved the joystick and pressed buttons. This proves USB enumeration and
+read-only input transfer on that board and connection. It does not establish
+the 8BitDo settings write protocol or that every direct USB-C cable works.
 
 Sources:
 

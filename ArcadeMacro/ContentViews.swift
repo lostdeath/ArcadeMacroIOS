@@ -38,6 +38,9 @@ struct DeviceView: View {
                 } header: { Text("Controller") }
                 Section("ESP32 bridge") {
                     Text(bluetooth.bridgeStatus).font(.subheadline)
+                    Text("Live stick input (hex): \(bluetooth.bridgeInput)")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
                     Button("Ping bridge") { bluetooth.pingBridge() }
                         .disabled(!bluetooth.bridgeReady)
                     if !bluetooth.bridgeReady {
