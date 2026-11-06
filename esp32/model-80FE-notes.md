@@ -53,6 +53,14 @@ owner moved the joystick and pressed buttons. This proves USB enumeration and
 read-only input transfer on that board and connection. It does not establish
 the 8BitDo settings write protocol or that every direct USB-C cable works.
 
+iPhone live-input test on 2026-11-06: with the same board and wiring, the
+ArcadeMacro iPhone app built from commit `e710dd9` connected to the bridge,
+showed `USB=HID_GAMEPAD_CONNECTED`, and its "Live stick input (hex)" line
+changed as the owner moved the stick and pressed buttons. This proves
+stick -> ESP32 USB host -> BLE notify (`a8c70005`) -> iPhone for read-only
+input. The bridge does not present itself to iOS as a game controller, so games
+do not see this input. Controller settings writes remain disabled.
+
 Sources:
 
 - Owner's Windows USB and HID observations, 2026-11-05.
